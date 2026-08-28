@@ -13,6 +13,9 @@ import re
 from playwright.sync_api import sync_playwright
 
 SEARCH_ENTRY_SELECTOR = "a.CroketBuyerTopBar_search__wrapper__TaALQ"
+# 크롬이 페이지에 자동으로 끼워 넣는 구글 번역 위젯의 숨은 input과 헷갈리지 않도록,
+# placeholder 텍스트로 실제 검색창만 정확히 찾는다 (일반 "input" 셀렉터는 그 위젯을 집을 수 있음)
+SEARCH_INPUT_SELECTOR = "input[placeholder*='찾고']"
 
 
 def _normalize_token(token: str) -> str:
@@ -106,7 +109,7 @@ class CroketClient:
 
         self._page.on("response", on_response)
         try:
-            box = self._page.locator("input").first
+            box = self._page.locator(SEARCH_INPUT_SELECTOR).first
             box.click(timeout=5000)
             box.fill("")
             self._page.wait_for_timeout(200)
