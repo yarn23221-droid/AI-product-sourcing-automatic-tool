@@ -85,10 +85,22 @@ def filter_candidates(candidates: list[dict]) -> list[dict]:
 
 
 def enrich_with_croket(candidates: list[dict]) -> list[dict]:
-    """각 후보를 크로켓에서 검색해 등록여부/가격/링크 정보를 덧붙인다."""
+    """각 후보를 크로켓에서 검색해 등록여부/가격/링크 정보를 덧붙인다.
+
+    상품 수가 많으면 한두 건에서 타임아웃/일시적 오류가 나는 걸 막을 수 없어서, 한 건이
+    실패해도 나머지 진행을 멈추지 않고 그 건만 "확인 필요"로 남긴 채 계속한다.
+    """
     with CroketClient() as client:
-        for c in candidates:
-            match = client.find_registered_product(c["title"])
+        for i, c in enumerate(candidates, start=1):
+            print(f"      ({i}/{len(candidates)}) {c['title'][:30]}")
+            try:
+                match = client.find_registered_product(c["title"])
+            except Exception as e:
+                print(f"      -> 조회 실패, 건너뜀: {e}")
+                c["croket_registered"] = "확인 필요"
+                c["croket_link"] = ""
+                c["croket_price"] = None
+                continue
             if match:
                 c["croket_registered"] = "O"
                 c["croket_link"] = match["linkUrl"]
