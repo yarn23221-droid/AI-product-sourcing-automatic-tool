@@ -39,7 +39,7 @@ def _tokenize(text: str) -> set[str]:
 _SPEC_UNIT_SUFFIXES = ("인치", "mah", "kg", "cm", "mm", "gb", "tb", "hz", "kw", "wh", "kwh", "w", "ml", "l", "ppi")
 
 
-def _is_model_token(token: str) -> bool:
+def is_model_token(token: str) -> bool:
     """'포크6', 'r640', 'carta1300'처럼 글자+숫자가 결합된, 모델을 특정하는 토큰인지 판단한다.
 
     '6인치', '1500mah'처럼 숫자 뒤에 흔한 단위가 붙은 토큰은 모델 식별자가 아니라 스펙이므로
@@ -65,7 +65,7 @@ def match_ratio(query: str, candidate_title: str) -> float:
     if not query_tokens:
         return 0.0
 
-    model_query_tokens = {t for t in query_tokens if _is_model_token(t)}
+    model_query_tokens = {t for t in query_tokens if is_model_token(t)}
     if model_query_tokens and not (model_query_tokens & candidate_tokens):
         return 0.0
 

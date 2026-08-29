@@ -10,20 +10,26 @@
   5. 남은 후보들을 크로켓에서 검색해 등록여부/가격(배송비포함)/링크를 확인한다
   6. 결과를 엑셀로 저장한다 (사람이 채워야 하는 항목은 빈칸으로 남김)
 
-사람이 직접 채워야 하는 항목(네이버 가격비교가 봇 차단이라 자동화 불가):
-  - 직구수요 존재여부 등급(구매/찜/리뷰수 기반 O/세모/X), 직구수요 발생사유
-  - 크로켓 외 판매채널의 2번째/3번째 채널 가격, 옵션(사이즈/컬러/용량 카테고리)
+사람이 직접 채워야 하는 항목(네이버 가격비교가 봇 차단이라 자동화 불가 - README 2번 참고):
+  - 직구수요 존재여부 등급(구매/찜/리뷰수 기반 O/세모/X, 기준은 헤더 셀 메모 참고), 직구수요 발생사유
+  - 크로켓 외 판매채널의 2번째/3번째 채널 가격 (채널1은 네이버 베스트 랭킹 자체의 판매처로 자동 입력됨)
+  - 옵션(사이즈/컬러/용량 중 어떤 카테고리가 있는지만 표시, 구체적인 값은 안 써도 됨)
+
+브랜드/제품명/제품번호는 title_parser.py가 상품명 텍스트에서 규칙 기반으로 뽑아낸 값이라
+휴리스틱이다 - 특히 브랜드는 상품명에 브랜드가 안 써 있으면 틀릴 수 있어 사람이 확인해야 한다.
 """
 
 from datetime import date, datetime
 from pathlib import Path
 
 from openpyxl import Workbook
+from openpyxl.comments import Comment
 from openpyxl.styles import Alignment, Font, PatternFill
 
 from croket_client import CroketClient
 from domestic_brand_filter import is_domestic_brand
 from listing_history import filter_out_recent, record_listed
+from title_parser import parse_title
 import naver_best_client as naver
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -94,6 +100,15 @@ def enrich_with_croket(candidates: list[dict]) -> list[dict]:
     return candidates
 
 
+# 링크 열에 적용할 파란 밑줄 하이퍼링크 스타일
+LINK_FONT = Font(color="0563C1", underline="single")
+
+DEMAND_TIER_NOTE = (
+    "네이버에서 상품명 검색 -> 가격비교 -> 해외직구 탭에서 확인.\n"
+    "구매/찜/리뷰 중 가장 큰 수 기준: 5개 이하=X, 20개 이상=세모, 50개 이상=O"
+)
+
+
 def build_excel(candidates: list[dict], output_path: Path) -> None:
     wb = Workbook()
     ws = wb.active
@@ -105,22 +120,31 @@ def build_excel(candidates: list[dict], output_path: Path) -> None:
         cell.fill = header_fill
         cell.font = Font(color="FFFFFF", bold=True)
         cell.alignment = Alignment(horizontal="center", wrap_text=True)
+    ws.cell(row=1, column=HEADERS.index("직구수요 존재여부") + 1).comment = Comment(DEMAND_TIER_NOTE, "안내")
 
     today_str = date.today().strftime("%Y-%m-%d")
     for row_idx, c in enumerate(candidates, start=2):
         delivery_fee = int(c["deliveryFee"]) if str(c["deliveryFee"]).isdigit() else 0
         naver_price_incl_shipping = c["discountPriceValue"] + delivery_fee
+        parsed = parse_title(c["title"])
 
         values = [
-            today_str, c["linkUrl"], c["categoryName"], "확인 필요", c["title"], "", "",
+            today_str, c["linkUrl"], c["categoryName"],
+            parsed["brand"], parsed["product_name"], parsed["model_no"], "",
             c["croket_registered"], c["croket_link"], c["croket_price"],
             c["mallNm"], naver_price_incl_shipping, "", "", "", "",
-            "확인 필요", "확인 필요",
-            f"네이버베스트 {c['categoryName']} {PERIOD_TYPE} {c['rank']}위 / "
-            f"브랜드·제품명 정리 및 옵션·2·3번째 채널가·직구수요는 사람 확인 필요",
+            "", "", "",
         ]
         for col_idx, v in enumerate(values, start=1):
             ws.cell(row=row_idx, column=col_idx, value=v)
+
+        link_cell = ws.cell(row=row_idx, column=HEADERS.index("참고링크") + 1)
+        link_cell.hyperlink = c["linkUrl"]
+        link_cell.font = LINK_FONT
+        if c["croket_link"]:
+            croket_link_cell = ws.cell(row=row_idx, column=HEADERS.index("크로켓 제품 링크") + 1)
+            croket_link_cell.hyperlink = c["croket_link"]
+            croket_link_cell.font = LINK_FONT
 
     widths = [11, 32, 12, 12, 40, 10, 10, 10, 30, 14, 14, 12, 14, 12, 14, 12, 12, 16, 45]
     for col_idx, w in enumerate(widths, start=1):
