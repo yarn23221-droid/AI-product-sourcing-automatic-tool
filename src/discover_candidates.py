@@ -121,7 +121,7 @@ DEMAND_TIER_NOTE = (
 )
 
 
-def build_excel(candidates: list[dict], output_path: Path) -> None:
+def _new_workbook():
     wb = Workbook()
     ws = wb.active
     ws.title = "후보"
@@ -134,38 +134,88 @@ def build_excel(candidates: list[dict], output_path: Path) -> None:
         cell.alignment = Alignment(horizontal="center", wrap_text=True)
     ws.cell(row=1, column=HEADERS.index("직구수요 존재여부") + 1).comment = Comment(DEMAND_TIER_NOTE, "안내")
 
-    today_str = date.today().strftime("%Y-%m-%d")
-    for row_idx, c in enumerate(candidates, start=2):
-        delivery_fee = int(c["deliveryFee"]) if str(c["deliveryFee"]).isdigit() else 0
-        naver_price_incl_shipping = c["discountPriceValue"] + delivery_fee
-        parsed = parse_title(c["title"])
-
-        values = [
-            today_str, c["linkUrl"], c["categoryName"],
-            parsed["brand"], parsed["product_name"], parsed["model_no"], parsed["option_category"],
-            c["croket_registered"], c["croket_link"], c["croket_price"],
-            c["mallNm"], naver_price_incl_shipping, "", "", "", "",
-            "", "", "",
-        ]
-        for col_idx, v in enumerate(values, start=1):
-            ws.cell(row=row_idx, column=col_idx, value=v)
-
-        link_cell = ws.cell(row=row_idx, column=HEADERS.index("참고링크") + 1)
-        link_cell.hyperlink = c["linkUrl"]
-        link_cell.font = LINK_FONT
-        if c["croket_link"]:
-            croket_link_cell = ws.cell(row=row_idx, column=HEADERS.index("크로켓 제품 링크") + 1)
-            croket_link_cell.hyperlink = c["croket_link"]
-            croket_link_cell.font = LINK_FONT
-
     widths = [11, 32, 12, 12, 40, 10, 10, 10, 30, 14, 14, 12, 14, 12, 14, 12, 12, 16, 45]
     for col_idx, w in enumerate(widths, start=1):
         ws.column_dimensions[ws.cell(row=1, column=col_idx).column_letter].width = w
     ws.freeze_panes = "A2"
+    return wb, ws
+
+
+def _write_candidate_row(ws, row_idx: int, c: dict) -> None:
+    """네이버 베스트/유튜브 등 출처와 상관없이 후보 하나를 행으로 써 넣는다.
+
+    c는 최소 linkUrl, categoryName, title, croket_registered, croket_link, croket_price가
+    있어야 하고, mallNm/discountPriceValue/deliveryFee는 없으면(예: 유튜브 소스) 채널1도
+    빈칸으로 남긴다 - 값을 지어내지 않는다는 원칙.
+    """
+    today_str = date.today().strftime("%Y-%m-%d")
+    parsed = parse_title(c["title"])
+
+    mall_name = c.get("mallNm", "")
+    channel1_price = ""
+    if mall_name:
+        delivery_fee = int(c.get("deliveryFee", 0)) if str(c.get("deliveryFee", "0")).isdigit() else 0
+        channel1_price = c.get("discountPriceValue", 0) + delivery_fee
+
+    values = [
+        today_str, c["linkUrl"], c["categoryName"],
+        parsed["brand"], parsed["product_name"], parsed["model_no"], parsed["option_category"],
+        c["croket_registered"], c["croket_link"], c["croket_price"],
+        mall_name, channel1_price, "", "", "", "",
+        "", "", "",
+    ]
+    for col_idx, v in enumerate(values, start=1):
+        ws.cell(row=row_idx, column=col_idx, value=v)
+
+    link_cell = ws.cell(row=row_idx, column=HEADERS.index("참고링크") + 1)
+    link_cell.hyperlink = c["linkUrl"]
+    link_cell.font = LINK_FONT
+    if c["croket_link"]:
+        croket_link_cell = ws.cell(row=row_idx, column=HEADERS.index("크로켓 제품 링크") + 1)
+        croket_link_cell.hyperlink = c["croket_link"]
+        croket_link_cell.font = LINK_FONT
+
+
+def build_excel(candidates: list[dict], output_path: Path) -> None:
+    wb, ws = _new_workbook()
+    for row_idx, c in enumerate(candidates, start=2):
+        _write_candidate_row(ws, row_idx, c)
     ws.auto_filter.ref = f"A1:{ws.cell(row=1, column=len(HEADERS)).column_letter}{max(len(candidates) + 1, 2)}"
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     wb.save(output_path)
+
+
+def add_youtube_candidate(output_path: Path, youtube_url: str, category_name: str, product_title: str) -> None:
+    """유튜브 영상에서 (사람 또는 대화 중인 Claude가) 확인한 실제 제품명으로 후보 한 줄을 추가한다.
+
+    참고링크는 그 유튜브 영상 링크 자체다. 네이버 베스트 데이터가 없으니 채널1도 비어 있고,
+    크로켓만 자동으로 조회해서 채운다.
+    """
+    from openpyxl import load_workbook
+
+    if output_path.exists():
+        wb = load_workbook(output_path)
+        ws = wb["후보"]
+    else:
+        wb, ws = _new_workbook()
+
+    with CroketClient() as client:
+        match = client.find_registered_product(product_title)
+
+    c = {
+        "linkUrl": youtube_url, "categoryName": category_name, "title": product_title,
+        "croket_registered": "O" if match else "X",
+        "croket_link": match["linkUrl"] if match else "",
+        "croket_price": match["priceInclShipping"] if match else None,
+    }
+    row_idx = ws.max_row + 1
+    _write_candidate_row(ws, row_idx, c)
+    ws.auto_filter.ref = f"A1:{ws.cell(row=1, column=len(HEADERS)).column_letter}{row_idx}"
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    wb.save(output_path)
+    print(f"추가됨: {product_title} (크로켓 {'O' if match else 'X'}) -> {output_path}")
 
 
 def run():

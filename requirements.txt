@@ -1,3 +1,4 @@
 openpyxl>=3.1
 requests>=2.31
 playwright>=1.62
+youtube-transcript-api>=1.2
