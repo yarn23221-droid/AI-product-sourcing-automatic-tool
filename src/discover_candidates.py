@@ -5,10 +5,9 @@
 실제로 하는 일:
   1. 지정한 하위 카테고리들의 네이버 베스트 일간 랭킹 top N을 가져온다
   2. 카테고리 간에 겹치는 상품은 1번만 남긴다 (productId 기준)
-  3. 최근 10일 이내 이미 리스트업했던 상품은 제외한다
-  4. 상품명에 국내 대기업 브랜드가 명시적으로 있으면 제외한다 (그 외에는 "해외 후보"로 남김)
-  5. 남은 후보들을 크로켓에서 검색해 등록여부/가격(배송비포함)/링크를 확인한다
-  6. 결과를 엑셀로 저장한다 (사람이 채워야 하는 항목은 빈칸으로 남김)
+  3. 상품명에 국내 대기업 브랜드가 명시적으로 있으면 제외한다 (그 외에는 "해외 후보"로 남김)
+  4. 남은 후보들을 크로켓에서 검색해 등록여부/가격(배송비포함)/링크를 확인한다
+  5. 결과를 엑셀로 저장한다 (사람이 채워야 하는 항목은 빈칸으로 남김)
 
 사람이 직접 채워야 하는 항목(네이버 가격비교가 봇 차단이라 자동화 불가 - README 2번 참고):
   - 직구수요 존재여부 등급(구매/찜/리뷰수 기반 O/세모/X, 기준은 헤더 셀 메모 참고), 직구수요 발생사유
@@ -17,11 +16,6 @@
 브랜드/제품명/제품번호/옵션(사이즈,컬러)은 title_parser.py가 상품명 텍스트에서 규칙 기반으로
 뽑아낸 값이라 휴리스틱이다 - 특히 브랜드는 상품명에 브랜드가 안 써 있으면 틀릴 수 있고, 옵션은
 제목 끝에 사이즈/색상 단어가 없으면 감지를 못 해 빈칸으로 남으므로 사람이 확인해야 한다.
-
-정식 실행: python discover_candidates.py
-  -> 10일 이내 이력을 확인/기록한다 (같은 상품이 계속 다시 뜨지 않게).
-반복 테스트용: python discover_candidates.py --preview
-  -> 이력을 무시하고 항상 최신 top N을 그대로 보여주며, 이력에 기록도 하지 않는다.
 """
 
 from datetime import date, datetime
@@ -33,7 +27,6 @@ from openpyxl.styles import Alignment, Font, PatternFill
 
 from croket_client import CroketClient
 from domestic_brand_filter import is_domestic_brand
-from listing_history import filter_out_recent, record_listed
 from title_parser import parse_title
 import naver_best_client as naver
 
@@ -44,7 +37,7 @@ OUTPUT_PATH = PROJECT_ROOT / "data" / "output" / f"candidates_{datetime.now().st
 # - 게임기/타이틀: 게임 하드웨어(콘솔/컨트롤러)뿐 아니라 스팀 게임코드 같은 비실물 상품이 섞여 나옴
 # - 소프트웨어: 애초에 실물 기기가 아님
 NON_DEVICE_SUBCATEGORY_NAMES = {"게임기/타이틀", "소프트웨어"}
-TOP_N_PER_CATEGORY = 10  # [시뮬레이션] 반복 테스트할 땐 --preview로 실행하면 이력에 안 쌓여서 이 값 그대로 써도 됨
+TOP_N_PER_CATEGORY = 10  # [시뮬레이션] 넓은 카테고리 커버리지 확인용으로 카테고리당 10개씩
 PERIOD_TYPE = "DAILY"
 
 HEADERS = [
@@ -74,25 +67,9 @@ def collect_candidates() -> list[dict]:
     return candidates
 
 
-def filter_candidates(candidates: list[dict], skip_history: bool = False) -> list[dict]:
-    """10일 이내 중복 제거 + 국내 대기업 브랜드 제외.
-
-    skip_history=True면 10일 이력 체크를 건너뛴다 (--preview 모드 - 테스트로 반복 실행할 때
-    이력이 쌓여서 후보가 계속 줄어드는 걸 막기 위함, 정식 실행에서는 항상 False로 둔다).
-    """
-    if skip_history:
-        kept_ids = {c["productId"] for c in candidates}
-    else:
-        kept_ids = set(filter_out_recent([c["productId"] for c in candidates]))
-
-    result = []
-    for c in candidates:
-        if c["productId"] not in kept_ids:
-            continue
-        if is_domestic_brand(c["title"]):
-            continue
-        result.append(c)
-    return result
+def filter_candidates(candidates: list[dict]) -> list[dict]:
+    """국내 대기업 브랜드 제외."""
+    return [c for c in candidates if not is_domestic_brand(c["title"])]
 
 
 def enrich_with_croket(candidates: list[dict]) -> list[dict]:
@@ -229,31 +206,24 @@ def add_youtube_candidate(output_path: Path, youtube_url: str, category_name: st
     print(f"추가됨: {product_title} (크로켓 {'O' if match else 'X'}) -> {output_path}")
 
 
-def run(preview: bool = False):
-    print(f"[1/5] 네이버 베스트에서 후보 수집 중... (순수 기기 카테고리, 카테고리당 top {TOP_N_PER_CATEGORY})")
+def run():
+    print(f"[1/4] 네이버 베스트에서 후보 수집 중... (순수 기기 카테고리, 카테고리당 top {TOP_N_PER_CATEGORY})")
     candidates = collect_candidates()
     print(f"      -> 카테고리 중복 제거 후 {len(candidates)}건")
 
-    print(f"[2/5] {'(미리보기 모드: 10일 이력 무시) ' if preview else ''}10일 이내 중복 / 국내 대기업 브랜드 제외 중...")
-    candidates = filter_candidates(candidates, skip_history=preview)
+    print("[2/4] 국내 대기업 브랜드 제외 중...")
+    candidates = filter_candidates(candidates)
     print(f"      -> 남은 해외 후보 {len(candidates)}건")
 
-    print("[3/5] 크로켓 등록여부/가격 조회 중... (상품 수에 따라 시간이 걸립니다)")
+    print("[3/4] 크로켓 등록여부/가격 조회 중... (상품 수에 따라 시간이 걸립니다)")
     candidates = enrich_with_croket(candidates)
 
-    print("[4/5] 결과 엑셀 생성 중...")
+    print("[4/4] 결과 엑셀 생성 중...")
     build_excel(candidates, OUTPUT_PATH)
-
-    if preview:
-        print("[5/5] 미리보기 모드라 이력에 기록하지 않음 (다음 실행에서도 같은 후보가 다시 보일 수 있음)")
-    else:
-        print("[5/5] 이번에 리스트업한 상품을 이력에 기록 중...")
-        record_listed([c["productId"] for c in candidates])
 
     print(f"\n완료: {OUTPUT_PATH}")
     print(f"총 {len(candidates)}건, 그 중 크로켓 등록됨 {sum(1 for c in candidates if c['croket_registered'] == 'O')}건")
 
 
 if __name__ == "__main__":
-    import sys
-    run(preview="--preview" in sys.argv)
+    run()

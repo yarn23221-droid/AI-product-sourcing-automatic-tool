@@ -8,10 +8,6 @@ venv/
 data/output/*.xlsx
 !data/output/.gitkeep
 
-# 리스트업 이력 (실행 환경마다 다르게 쌓이는 로컬 상태 - 저장소에는 커밋하지 않음)
-data/state/*.json
-!data/state/.gitkeep
-
 # Playwright 브라우저 캐시
 .cache/ms-playwright/
 
