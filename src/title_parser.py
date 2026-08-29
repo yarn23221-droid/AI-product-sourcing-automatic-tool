@@ -21,8 +21,13 @@ NOISE_PHRASES = [
     "국내배송", "미국정품", "미국직구", "중국내수용", "중국내수버전", "일반버전", "단품",
     "출장지원", "슈퍼적립", "브이로그", "콤보", "세트",
 ]
-# 제품명 끝에 붙는 사이즈 표기 (제거 대상 - 옵션은 별도 열에서 다룸)
+# 제품명 끝에 붙는 사이즈 표기 (제거 대상 - 옵션은 별도 열에서 '사이즈'로 표시)
 _SIZE_SUFFIXES = {"s", "m", "l", "xl", "xxl", "2xl", "3xl", "sm", "med", "lg"}
+# 제품명 끝에 붙는 흔한 색상 표기 (제거 대상 - 옵션은 별도 열에서 '컬러'로 표시)
+_COLOR_WORDS = {
+    "블랙", "화이트", "그레이", "실버", "골드", "로즈골드", "네이비", "베이지", "브라운",
+    "레드", "블루", "그린", "옐로우", "핑크", "퍼플", "민트", "카키", "아이보리",
+}
 
 
 def _rule_based_parse(raw_title: str) -> dict:
@@ -30,11 +35,17 @@ def _rule_based_parse(raw_title: str) -> dict:
     text = re.sub(r"[-–]\s*", " ", text)  # '관부가세포함 - ' 같은 하이픈 구분자 제거
     words = text.split()
     words = [w for w in words if not any(noise in w for noise in NOISE_PHRASES)]
-    if words and re.sub(r"[.,]", "", words[-1]).lower() in _SIZE_SUFFIXES:
-        words = words[:-1]
+
+    option_category = ""
+    if words:
+        last = re.sub(r"[.,]", "", words[-1])
+        if last.lower() in _SIZE_SUFFIXES:
+            option_category, words = "사이즈", words[:-1]
+        elif last in _COLOR_WORDS:
+            option_category, words = "컬러", words[:-1]
 
     if not words:
-        return {"brand": "", "product_name": raw_title.strip(), "model_no": ""}
+        return {"brand": "", "product_name": raw_title.strip(), "model_no": "", "option_category": option_category}
 
     brand = words[0]
     model_no = next((w for w in words[1:] if is_model_token(w)), "")
@@ -44,6 +55,7 @@ def _rule_based_parse(raw_title: str) -> dict:
         "brand": brand,
         "product_name": " ".join(product_words),
         "model_no": model_no,
+        "option_category": option_category,
     }
 
 
@@ -62,7 +74,9 @@ def _claude_parse(raw_title: str) -> dict | None:
 
     prompt = (
         "다음은 온라인 쇼핑몰 상품명이다. 여기서 브랜드, 제품명(시리즈, 옵션/색상/사이즈 제외), "
-        "제품번호(모델명)를 뽑아 'brand|product_name|model_no' 형식으로만 답하라. 모르면 빈 값으로.\n"
+        "제품번호(모델명), 옵션 카테고리(사이즈/컬러/용량 중 이 상품에 선택 옵션이 있어 보이면 "
+        "해당 단어, 없으면 빈 값)를 뽑아 'brand|product_name|model_no|option_category' 형식으로만 "
+        "답하라. 모르면 빈 값으로.\n"
         f"상품명: {raw_title}"
     )
     try:
@@ -72,14 +86,17 @@ def _claude_parse(raw_title: str) -> dict | None:
             messages=[{"role": "user", "content": prompt}],
         )
         answer = response.content[0].text.strip()
-        brand, product_name, model_no = (answer.split("|") + ["", "", ""])[:3]
-        return {"brand": brand.strip(), "product_name": product_name.strip(), "model_no": model_no.strip()}
+        brand, product_name, model_no, option_category = (answer.split("|") + ["", "", "", ""])[:4]
+        return {
+            "brand": brand.strip(), "product_name": product_name.strip(),
+            "model_no": model_no.strip(), "option_category": option_category.strip(),
+        }
     except Exception:
         return None
 
 
 def parse_title(raw_title: str) -> dict:
-    """상품명에서 {"brand", "product_name", "model_no"}를 뽑는다."""
+    """상품명에서 {"brand", "product_name", "model_no", "option_category"}를 뽑는다."""
     return _claude_parse(raw_title) or _rule_based_parse(raw_title)
 
 

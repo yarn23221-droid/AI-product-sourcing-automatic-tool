@@ -13,10 +13,10 @@
 사람이 직접 채워야 하는 항목(네이버 가격비교가 봇 차단이라 자동화 불가 - README 2번 참고):
   - 직구수요 존재여부 등급(구매/찜/리뷰수 기반 O/세모/X, 기준은 헤더 셀 메모 참고), 직구수요 발생사유
   - 크로켓 외 판매채널의 2번째/3번째 채널 가격 (채널1은 네이버 베스트 랭킹 자체의 판매처로 자동 입력됨)
-  - 옵션(사이즈/컬러/용량 중 어떤 카테고리가 있는지만 표시, 구체적인 값은 안 써도 됨)
 
-브랜드/제품명/제품번호는 title_parser.py가 상품명 텍스트에서 규칙 기반으로 뽑아낸 값이라
-휴리스틱이다 - 특히 브랜드는 상품명에 브랜드가 안 써 있으면 틀릴 수 있어 사람이 확인해야 한다.
+브랜드/제품명/제품번호/옵션(사이즈,컬러)은 title_parser.py가 상품명 텍스트에서 규칙 기반으로
+뽑아낸 값이라 휴리스틱이다 - 특히 브랜드는 상품명에 브랜드가 안 써 있으면 틀릴 수 있고, 옵션은
+제목 끝에 사이즈/색상 단어가 없으면 감지를 못 해 빈칸으로 남으므로 사람이 확인해야 한다.
 """
 
 from datetime import date, datetime
@@ -142,7 +142,7 @@ def build_excel(candidates: list[dict], output_path: Path) -> None:
 
         values = [
             today_str, c["linkUrl"], c["categoryName"],
-            parsed["brand"], parsed["product_name"], parsed["model_no"], "",
+            parsed["brand"], parsed["product_name"], parsed["model_no"], parsed["option_category"],
             c["croket_registered"], c["croket_link"], c["croket_price"],
             c["mallNm"], naver_price_incl_shipping, "", "", "", "",
             "", "", "",
