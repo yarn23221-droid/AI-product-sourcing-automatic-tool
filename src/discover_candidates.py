@@ -39,7 +39,7 @@ OUTPUT_PATH = PROJECT_ROOT / "data" / "output" / f"candidates_{datetime.now().st
 # - 게임기/타이틀: 게임 하드웨어(콘솔/컨트롤러)뿐 아니라 스팀 게임코드 같은 비실물 상품이 섞여 나옴
 # - 소프트웨어: 애초에 실물 기기가 아님
 NON_DEVICE_SUBCATEGORY_NAMES = {"게임기/타이틀", "소프트웨어"}
-TOP_N_PER_CATEGORY = 3  # [시뮬레이션] 넓은 카테고리 커버리지 확인용으로 우선 카테고리당 3개씩만
+TOP_N_PER_CATEGORY = 10  # [시뮬레이션] 넓은 카테고리 커버리지 확인용, 어제 top3는 이미 이력에 있어 10으로 확장
 PERIOD_TYPE = "DAILY"
 
 HEADERS = [
