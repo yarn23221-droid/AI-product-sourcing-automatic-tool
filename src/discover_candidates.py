@@ -17,6 +17,11 @@
 브랜드/제품명/제품번호/옵션(사이즈,컬러)은 title_parser.py가 상품명 텍스트에서 규칙 기반으로
 뽑아낸 값이라 휴리스틱이다 - 특히 브랜드는 상품명에 브랜드가 안 써 있으면 틀릴 수 있고, 옵션은
 제목 끝에 사이즈/색상 단어가 없으면 감지를 못 해 빈칸으로 남으므로 사람이 확인해야 한다.
+
+정식 실행: python discover_candidates.py
+  -> 10일 이내 이력을 확인/기록한다 (같은 상품이 계속 다시 뜨지 않게).
+반복 테스트용: python discover_candidates.py --preview
+  -> 이력을 무시하고 항상 최신 top N을 그대로 보여주며, 이력에 기록도 하지 않는다.
 """
 
 from datetime import date, datetime
@@ -39,7 +44,7 @@ OUTPUT_PATH = PROJECT_ROOT / "data" / "output" / f"candidates_{datetime.now().st
 # - 게임기/타이틀: 게임 하드웨어(콘솔/컨트롤러)뿐 아니라 스팀 게임코드 같은 비실물 상품이 섞여 나옴
 # - 소프트웨어: 애초에 실물 기기가 아님
 NON_DEVICE_SUBCATEGORY_NAMES = {"게임기/타이틀", "소프트웨어"}
-TOP_N_PER_CATEGORY = 10  # [시뮬레이션] 넓은 카테고리 커버리지 확인용, 어제 top3는 이미 이력에 있어 10으로 확장
+TOP_N_PER_CATEGORY = 10  # [시뮬레이션] 반복 테스트할 땐 --preview로 실행하면 이력에 안 쌓여서 이 값 그대로 써도 됨
 PERIOD_TYPE = "DAILY"
 
 HEADERS = [
@@ -69,10 +74,16 @@ def collect_candidates() -> list[dict]:
     return candidates
 
 
-def filter_candidates(candidates: list[dict]) -> list[dict]:
-    """10일 이내 중복 제거 + 국내 대기업 브랜드 제외."""
-    product_ids = [c["productId"] for c in candidates]
-    kept_ids = set(filter_out_recent(product_ids))
+def filter_candidates(candidates: list[dict], skip_history: bool = False) -> list[dict]:
+    """10일 이내 중복 제거 + 국내 대기업 브랜드 제외.
+
+    skip_history=True면 10일 이력 체크를 건너뛴다 (--preview 모드 - 테스트로 반복 실행할 때
+    이력이 쌓여서 후보가 계속 줄어드는 걸 막기 위함, 정식 실행에서는 항상 False로 둔다).
+    """
+    if skip_history:
+        kept_ids = {c["productId"] for c in candidates}
+    else:
+        kept_ids = set(filter_out_recent([c["productId"] for c in candidates]))
 
     result = []
     for c in candidates:
@@ -218,13 +229,13 @@ def add_youtube_candidate(output_path: Path, youtube_url: str, category_name: st
     print(f"추가됨: {product_title} (크로켓 {'O' if match else 'X'}) -> {output_path}")
 
 
-def run():
+def run(preview: bool = False):
     print(f"[1/5] 네이버 베스트에서 후보 수집 중... (순수 기기 카테고리, 카테고리당 top {TOP_N_PER_CATEGORY})")
     candidates = collect_candidates()
     print(f"      -> 카테고리 중복 제거 후 {len(candidates)}건")
 
-    print("[2/5] 10일 이내 중복 / 국내 대기업 브랜드 제외 중...")
-    candidates = filter_candidates(candidates)
+    print(f"[2/5] {'(미리보기 모드: 10일 이력 무시) ' if preview else ''}10일 이내 중복 / 국내 대기업 브랜드 제외 중...")
+    candidates = filter_candidates(candidates, skip_history=preview)
     print(f"      -> 남은 해외 후보 {len(candidates)}건")
 
     print("[3/5] 크로켓 등록여부/가격 조회 중... (상품 수에 따라 시간이 걸립니다)")
@@ -233,12 +244,16 @@ def run():
     print("[4/5] 결과 엑셀 생성 중...")
     build_excel(candidates, OUTPUT_PATH)
 
-    print("[5/5] 이번에 리스트업한 상품을 이력에 기록 중...")
-    record_listed([c["productId"] for c in candidates])
+    if preview:
+        print("[5/5] 미리보기 모드라 이력에 기록하지 않음 (다음 실행에서도 같은 후보가 다시 보일 수 있음)")
+    else:
+        print("[5/5] 이번에 리스트업한 상품을 이력에 기록 중...")
+        record_listed([c["productId"] for c in candidates])
 
     print(f"\n완료: {OUTPUT_PATH}")
     print(f"총 {len(candidates)}건, 그 중 크로켓 등록됨 {sum(1 for c in candidates if c['croket_registered'] == 'O')}건")
 
 
 if __name__ == "__main__":
-    run()
+    import sys
+    run(preview="--preview" in sys.argv)
